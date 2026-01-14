@@ -17,6 +17,7 @@
     <h1 class="text-2xl font-bold text-center mb-2">📄 請款單辨識系統</h1>
     <p class="text-gray-500 text-center mb-6">上傳請款單照片，自動提取資訊</p>
 
+    <!-- Settings -->
     <div class="bg-white rounded-xl shadow p-4 mb-4">
         <div class="flex justify-between items-center cursor-pointer" onclick="toggleSettings()">
             <div class="flex items-center gap-2">
@@ -35,21 +36,22 @@
                 </div>
                 <div id="key-claude">
                     <label class="text-sm text-gray-600">Claude API Key</label>
-                    <input type="password" id="apikey-claude" class="w-full p-2 border rounded mt-1" placeholder="sk-ant-...">
+                    <input type="password" id="apikey-claude" class="w-full p-2 border rounded mt-1" placeholder="sk-ant-..." oninput="autoSave()">
                 </div>
                 <div id="key-openai" class="hidden">
                     <label class="text-sm text-gray-600">OpenAI API Key</label>
-                    <input type="password" id="apikey-openai" class="w-full p-2 border rounded mt-1" placeholder="sk-...">
+                    <input type="password" id="apikey-openai" class="w-full p-2 border rounded mt-1" placeholder="sk-..." oninput="autoSave()">
                 </div>
                 <div id="key-gemini" class="hidden">
                     <label class="text-sm text-gray-600">Gemini API Key</label>
-                    <input type="password" id="apikey-gemini" class="w-full p-2 border rounded mt-1" placeholder="AIza...">
+                    <input type="password" id="apikey-gemini" class="w-full p-2 border rounded mt-1" placeholder="AIza-..." oninput="autoSave()">
                 </div>
                 <button onclick="saveKeys()" class="w-full p-2 bg-gray-100 rounded">💾 儲存設定</button>
             </div>
         </div>
     </div>
 
+    <!-- Upload -->
     <div class="bg-white rounded-xl shadow p-6 mb-4">
         <div id="dropzone" class="upload-area rounded-lg p-8 text-center cursor-pointer" onclick="document.getElementById('fileinput').click()">
             <input type="file" id="fileinput" accept="image/*" multiple class="hidden" onchange="addFiles(this.files)">
@@ -60,6 +62,7 @@
         <button id="submitBtn" onclick="submit()" class="w-full mt-4 p-3 bg-blue-500 text-white rounded-lg font-medium hidden">開始辨識</button>
     </div>
 
+    <!-- Results -->
     <div id="results" class="space-y-3"></div>
 </div>
 
@@ -79,16 +82,21 @@ function setModel(m) {
         document.getElementById('key-'+x).className = x===m ? '' : 'hidden';
     });
     document.getElementById('modelLabel').textContent = {claude:'Claude',openai:'OpenAI',gemini:'Gemini'}[m];
+    autoSave();
 }
 
-function saveKeys() {
+function saveKeys(showAlert = true) {
     localStorage.setItem('model', model);
     localStorage.setItem('keys', JSON.stringify({
         claude: document.getElementById('apikey-claude').value,
         openai: document.getElementById('apikey-openai').value,
         gemini: document.getElementById('apikey-gemini').value
     }));
-    alert('已儲存');
+    if (showAlert) alert('已儲存');
+}
+
+function autoSave() {
+    saveKeys(false);
 }
 
 function loadKeys() {
@@ -124,7 +132,8 @@ function renderPreview() {
         r.onload = e => {
             const d = document.createElement('div');
             d.className = 'relative';
-            d.innerHTML = `<img src="${e.target.result}" class="w-full h-24 object-cover rounded"><button onclick="removeFile(${i})" class="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-sm">×</button>`;
+            d.innerHTML = `<img src="${e.target.result}" class="w-full h-24 object-cover rounded">
+                <button onclick="removeFile(${i})" class="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-sm">×</button>`;
             p.appendChild(d);
         };
         r.readAsDataURL(f);
@@ -166,7 +175,8 @@ function showResults(data) {
         div.className = 'bg-white rounded-xl shadow p-4';
         if (item.success) {
             const fields = ['申請單號','申請日期','表單類別','申請事項類別','申請人','對象','幣別','總金額','主旨','內容說明','附件類型'];
-            div.innerHTML = `<div class="flex justify-between mb-2"><span class="font-medium">${item.filename}</span><span class="text-green-600">✓</span></div>${fields.map(f => `<div class="flex py-1 border-b border-gray-100 text-sm"><span class="w-24 text-gray-500">${f}</span><span>${item.data[f]||'-'}</span></div>`).join('')}`;
+            div.innerHTML = `<div class="flex justify-between mb-2"><span class="font-medium">${item.filename}</span><span class="text-green-600">✓</span></div>
+                ${fields.map(f => `<div class="flex py-1 border-b border-gray-100 text-sm"><span class="w-24 text-gray-500">${f}</span><span>${item.data[f]||'-'}</span></div>`).join('')}`;
         } else {
             div.innerHTML = `<div class="flex justify-between"><span>${item.filename}</span><span class="text-red-600">✗</span></div><p class="text-red-500 text-sm mt-2">${item.error}</p>`;
         }
@@ -174,6 +184,7 @@ function showResults(data) {
     });
 }
 
+// Drag & drop
 const dz = document.getElementById('dropzone');
 dz.ondragover = e => { e.preventDefault(); dz.classList.add('dragover'); };
 dz.ondragleave = () => dz.classList.remove('dragover');
