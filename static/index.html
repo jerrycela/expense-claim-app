@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>請款單辨識系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .upload-area { border: 3px dashed #cbd5e1; }
+        .upload-area.dragover { border-color: #3b82f6; background: #eff6ff; }
+        .settings-content { max-height: 0; overflow: hidden; transition: max-height 0.3s; }
+        .settings-content.open { max-height: 400px; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div class="max-w-xl mx-auto p-4">
+    <h1 class="text-2xl font-bold text-center mb-2">📄 請款單辨識系統</h1>
+    <p class="text-gray-500 text-center mb-6">上傳請款單照片，自動提取資訊</p>
+
+    <div class="bg-white rounded-xl shadow p-4 mb-4">
+        <div class="flex justify-between items-center cursor-pointer" onclick="toggleSettings()">
+            <div class="flex items-center gap-2">
+                <span>🤖</span>
+                <span class="font-medium">AI 設定</span>
+                <span class="text-sm text-gray-500" id="modelLabel">Claude</span>
+            </div>
+            <span id="arrow">▼</span>
+        </div>
+        <div class="settings-content" id="settings">
+            <div class="pt-4 space-y-3">
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="setModel('claude')" id="btn-claude" class="p-3 border-2 rounded-lg border-blue-500 bg-blue-50">🟠 Claude</button>
+                    <button onclick="setModel('openai')" id="btn-openai" class="p-3 border-2 rounded-lg border-gray-200">🟢 OpenAI</button>
+                    <button onclick="setModel('gemini')" id="btn-gemini" class="p-3 border-2 rounded-lg border-gray-200">🔵 Gemini</button>
+                </div>
+                <div id="key-claude">
+                    <label class="text-sm text-gray-600">Claude API Key</label>
+                    <input type="password" id="apikey-claude" class="w-full p-2 border rounded mt-1" placeholder="sk-ant-...">
+                </div>
+                <div id="key-openai" class="hidden">
+                    <label class="text-sm text-gray-600">OpenAI API Key</label>
+                    <input type="password" id="apikey-openai" class="w-full p-2 border rounded mt-1" placeholder="sk-...">
+                </div>
+                <div id="key-gemini" class="hidden">
+                    <label class="text-sm text-gray-600">Gemini API Key</label>
+                    <input type="password" id="apikey-gemini" class="w-full p-2 border rounded mt-1" placeholder="AIza...">
+                </div>
+                <button onclick="saveKeys()" class="w-full p-2 bg-gray-100 rounded">💾 儲存設定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-6 mb-4">
+        <div id="dropzone" class="upload-area rounded-lg p-8 text-center cursor-pointer" onclick="document.getElementById('fileinput').click()">
+            <input type="file" id="fileinput" accept="image/*" multiple class="hidden" onchange="addFiles(this.files)">
+            <div class="text-4xl mb-2">📷</div>
+            <p class="text-gray-600">點擊或拖放圖片</p>
+        </div>
+        <div id="preview" class="grid grid-cols-3 gap-2 mt-4 hidden"></div>
+        <button id="submitBtn" onclick="submit()" class="w-full mt-4 p-3 bg-blue-500 text-white rounded-lg font-medium hidden">開始辨識</button>
+    </div>
+
+    <div id="results" class="space-y-3"></div>
+</div>
+
+<script>
+let model = 'claude';
+let files = [];
+
+function toggleSettings() {
+    document.getElementById('settings').classList.toggle('open');
+    document.getElementById('arrow').textContent = document.getElementById('settings').classList.contains('open') ? '▲' : '▼';
+}
+
+function setModel(m) {
+    model = m;
+    ['claude','openai','gemini'].forEach(x => {
+        document.getElementById('btn-'+x).className = 'p-3 border-2 rounded-lg ' + (x===m ? 'border-blue-500 bg-blue-50' : 'border-gray-200');
+        document.getElementById('key-'+x).className = x===m ? '' : 'hidden';
+    });
+    document.getElementById('modelLabel').textContent = {claude:'Claude',openai:'OpenAI',gemini:'Gemini'}[m];
+}
+
+function saveKeys() {
+    localStorage.setItem('model', model);
+    localStorage.setItem('keys', JSON.stringify({
+        claude: document.getElementById('apikey-claude').value,
+        openai: document.getElementById('apikey-openai').value,
+        gemini: document.getElementById('apikey-gemini').value
+    }));
+    alert('已儲存');
+}
+
+function loadKeys() {
+    const m = localStorage.getItem('model');
+    if (m) setModel(m);
+    const k = localStorage.getItem('keys');
+    if (k) {
+        const keys = JSON.parse(k);
+        document.getElementById('apikey-claude').value = keys.claude || '';
+        document.getElementById('apikey-openai').value = keys.openai || '';
+        document.getElementById('apikey-gemini').value = keys.gemini || '';
+    }
+}
+
+function addFiles(newFiles) {
+    files = [...files, ...Array.from(newFiles).filter(f => f.type.startsWith('image/'))];
+    renderPreview();
+}
+
+function removeFile(i) {
+    files.splice(i, 1);
+    renderPreview();
+}
+
+function renderPreview() {
+    const p = document.getElementById('preview');
+    const b = document.getElementById('submitBtn');
+    if (!files.length) { p.classList.add('hidden'); b.classList.add('hidden'); return; }
+    p.classList.remove('hidden'); b.classList.remove('hidden');
+    p.innerHTML = '';
+    files.forEach((f, i) => {
+        const r = new FileReader();
+        r.onload = e => {
+            const d = document.createElement('div');
+            d.className = 'relative';
+            d.innerHTML = `<img src="${e.target.result}" class="w-full h-24 object-cover rounded"><button onclick="removeFile(${i})" class="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-sm">×</button>`;
+            p.appendChild(d);
+        };
+        r.readAsDataURL(f);
+    });
+}
+
+async function submit() {
+    const key = document.getElementById('apikey-'+model).value;
+    if (!key) { alert('請輸入 API Key'); toggleSettings(); return; }
+    if (!files.length) return;
+
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('submitBtn').textContent = '處理中...';
+
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));
+    fd.append('model', model);
+    fd.append('api_key', key);
+
+    try {
+        const res = await fetch('/api/process', { method: 'POST', body: fd });
+        const data = await res.json();
+        showResults(data);
+        files = [];
+        renderPreview();
+    } catch (e) {
+        alert('錯誤: ' + e.message);
+    }
+
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').textContent = '開始辨識';
+}
+
+function showResults(data) {
+    const r = document.getElementById('results');
+    r.innerHTML = `<div class="text-center p-2 rounded ${data.failed?'bg-yellow-100':'bg-green-100'}">成功 ${data.successful} / 失敗 ${data.failed}</div>`;
+    data.results.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'bg-white rounded-xl shadow p-4';
+        if (item.success) {
+            const fields = ['申請單號','申請日期','表單類別','申請事項類別','申請人','對象','幣別','總金額','主旨','內容說明','附件類型'];
+            div.innerHTML = `<div class="flex justify-between mb-2"><span class="font-medium">${item.filename}</span><span class="text-green-600">✓</span></div>${fields.map(f => `<div class="flex py-1 border-b border-gray-100 text-sm"><span class="w-24 text-gray-500">${f}</span><span>${item.data[f]||'-'}</span></div>`).join('')}`;
+        } else {
+            div.innerHTML = `<div class="flex justify-between"><span>${item.filename}</span><span class="text-red-600">✗</span></div><p class="text-red-500 text-sm mt-2">${item.error}</p>`;
+        }
+        r.appendChild(div);
+    });
+}
+
+const dz = document.getElementById('dropzone');
+dz.ondragover = e => { e.preventDefault(); dz.classList.add('dragover'); };
+dz.ondragleave = () => dz.classList.remove('dragover');
+dz.ondrop = e => { e.preventDefault(); dz.classList.remove('dragover'); addFiles(e.dataTransfer.files); };
+
+loadKeys();
+</script>
+</body>
+</html>
