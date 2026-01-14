@@ -3,7 +3,7 @@ import base64
 import json
 import httpx
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -25,19 +25,15 @@ GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1rutFLOfG8uHeesUolKMHVZn4C4ZGUVuonCILTPZ3VCk")
 SHEET_NAME = os.getenv("SHEET_NAME", "請款紀錄")
 
-PROMPT = """分析這張請款單圖片，提取以下欄位資訊，以 JSON 格式回覆：
-{
-  "申請日期": "",
-  "表單類別": "",
-  "申請事項類別": "",
-  "申請人": "",
-  "對象": "",
-  "幣別": "",
-  "總金額": "",
-  "主旨": "",
-  "內容說明": ""
-}
-找不到的欄位填 null，只回覆 JSON，不要其他文字。"""
+PROMPT = """分析這張請款單圖片，提取欄位資訊，以 JSON 回覆：
+{"公司別":"","申請日期":"","表單類別":"","申請事項類別":"","申請人":"","對象":"","幣別":"","總金額":"","主旨":"","內容說明":""}
+
+注意事項：
+1. 公司別只能是以下三種之一：SG、CELA、MEGA。請根據圖片中的公司名稱、Logo或相關資訊判斷屬於哪一家公司。
+2. 申請日期格式為 YYYY/M/D（例如：2026/1/13）
+3. 總金額只填數字，不要包含貨幣符號
+4. 找不到的欄位填 null
+5. 只回覆 JSON，不要其他文字。"""
 
 
 def get_sheets_service():
@@ -110,7 +106,9 @@ def save_to_sheet(data: dict):
     service = get_sheets_service()
     if not service:
         return
+    # 欄位對應：A:公司別, B:申請日期, C:表單類別, D:申請事項類別, E:申請人, F:對象, G:幣別, H:總金額, I:主旨, J:內容說明
     row = [
+        data.get("公司別", ""),
         data.get("申請日期", ""),
         data.get("表單類別", ""),
         data.get("申請事項類別", ""),
@@ -123,7 +121,7 @@ def save_to_sheet(data: dict):
     ]
     service.spreadsheets().values().append(
         spreadsheetId=SPREADSHEET_ID,
-        range=f"{SHEET_NAME}!A:I",
+        range=f"{SHEET_NAME}!A:J",
         valueInputOption="USER_ENTERED",
         insertDataOption="INSERT_ROWS",
         body={"values": [row]}
