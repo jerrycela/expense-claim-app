@@ -86,7 +86,7 @@ async def call_openai(img_b64: str, media_type: str, api_key: str) -> dict:
 async def call_gemini(img_b64: str, media_type: str, api_key: str) -> dict:
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={api_key}",
             json={"contents": [{"parts": [
                 {"text": PROMPT},
                 {"inline_data": {"mime_type": media_type, "data": img_b64}}
