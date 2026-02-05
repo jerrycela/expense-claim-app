@@ -4,193 +4,721 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>請款單辨識系統</title>
+    <!-- Inter Font (Notion-style) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+                    },
+                    colors: {
+                        notion: {
+                            bg: '#FFFFFF',
+                            surface: '#F7F6F3',
+                            hover: '#EFEFEF',
+                            border: '#E5E5E5',
+                            text: '#37352F',
+                            muted: '#9B9A97',
+                            blue: '#2383E2',
+                            green: '#0F7B6C',
+                            red: '#E03E3E',
+                            orange: '#D9730D',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        .upload-area { border: 3px dashed #cbd5e1; }
-        .upload-area.dragover { border-color: #3b82f6; background: #eff6ff; }
-        .settings-content { max-height: 0; overflow: hidden; transition: max-height 0.3s; }
-        .settings-content.open { max-height: 400px; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            background: #FFFFFF;
+            color: #37352F;
+        }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .toast {
+            padding: 0.625rem 1rem;
+            border-radius: 6px;
+            box-shadow: 0 0 0 1px rgba(15,15,15,0.05), 0 3px 6px rgba(15,15,15,0.1), 0 9px 24px rgba(15,15,15,0.2);
+            animation: toastIn 0.2s ease;
+            font-size: 14px;
+            font-weight: 500;
+            max-width: 360px;
+            background: #37352F;
+            color: white;
+        }
+        .toast.success { background: #0F7B6C; }
+        .toast.error { background: #E03E3E; }
+        .toast.warning { background: #D9730D; }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(8px); }
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 1.5px dashed #E5E5E5;
+            transition: all 0.15s ease;
+        }
+        .upload-area:hover {
+            border-color: #C4C4C4;
+            background: #F7F6F3;
+        }
+        .upload-area.dragover {
+            border-color: #2383E2;
+            background: rgba(35, 131, 226, 0.04);
+        }
+
+        /* Card */
+        .notion-card {
+            background: white;
+            border: 1px solid #E5E5E5;
+            border-radius: 8px;
+            transition: box-shadow 0.15s ease;
+        }
+        .notion-card:hover {
+            box-shadow: 0 0 0 1px rgba(15,15,15,0.05), 0 2px 4px rgba(15,15,15,0.1);
+        }
+
+        /* Button */
+        .notion-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 0.875rem;
+            font-size: 14px;
+            font-weight: 500;
+            border-radius: 6px;
+            transition: all 0.15s ease;
+            cursor: pointer;
+        }
+        .notion-btn-primary {
+            background: #2383E2;
+            color: white;
+        }
+        .notion-btn-primary:hover:not(:disabled) {
+            background: #1B6EC2;
+        }
+        .notion-btn-primary:disabled {
+            background: #C4C4C4;
+            cursor: not-allowed;
+        }
+        .notion-btn-secondary {
+            background: #F7F6F3;
+            color: #37352F;
+            border: 1px solid #E5E5E5;
+        }
+        .notion-btn-secondary:hover {
+            background: #EFEFEF;
+        }
+
+        /* Input */
+        .notion-input {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            font-size: 14px;
+            border: 1px solid #E5E5E5;
+            border-radius: 6px;
+            background: white;
+            transition: all 0.15s ease;
+        }
+        .notion-input:focus {
+            outline: none;
+            border-color: #2383E2;
+            box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.15);
+        }
+        .notion-input::placeholder {
+            color: #9B9A97;
+        }
+
+        /* Progress Bar */
+        .progress-bar {
+            height: 4px;
+            background: #E5E5E5;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .progress-bar .fill {
+            height: 100%;
+            background: #2383E2;
+            transition: width 0.3s ease;
+        }
+
+        /* Model Toggle */
+        .model-btn {
+            padding: 0.5rem 0.75rem;
+            font-size: 13px;
+            font-weight: 500;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: #9B9A97;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .model-btn:hover:not(:disabled) {
+            background: #F7F6F3;
+            color: #37352F;
+        }
+        .model-btn.active {
+            background: #F7F6F3;
+            color: #37352F;
+            border-color: #E5E5E5;
+        }
+        .model-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Results */
+        .result-row {
+            display: flex;
+            padding: 0.375rem 0;
+            border-bottom: 1px solid #F0F0F0;
+            font-size: 14px;
+        }
+        .result-row:last-child {
+            border-bottom: none;
+        }
+        .result-label {
+            width: 100px;
+            flex-shrink: 0;
+            color: #9B9A97;
+        }
+        .result-value {
+            flex: 1;
+            color: #37352F;
+        }
+
+        /* Preview */
+        .preview-item {
+            position: relative;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #E5E5E5;
+        }
+        .preview-item img {
+            width: 100%;
+            height: 80px;
+            object-fit: cover;
+        }
+        .preview-item .remove-btn {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            background: rgba(55, 53, 47, 0.8);
+            color: white;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+        .preview-item:hover .remove-btn {
+            opacity: 1;
+        }
+
+        /* Auth Screen */
+        .auth-screen {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .auth-card {
+            width: 100%;
+            max-width: 360px;
+            padding: 2rem;
+        }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-<div class="max-w-xl mx-auto p-4">
-    <h1 class="text-2xl font-bold text-center mb-2">📄 請款單辨識系統</h1>
-    <p class="text-gray-500 text-center mb-6">上傳請款單照片，自動提取資訊</p>
+<body class="min-h-screen">
+<!-- Toast Container -->
+<div id="toastContainer" class="toast-container"></div>
 
-    <!-- Settings -->
-    <div class="bg-white rounded-xl shadow p-4 mb-4">
-        <div class="flex justify-between items-center cursor-pointer" onclick="toggleSettings()">
-            <div class="flex items-center gap-2">
-                <span>🤖</span>
-                <span class="font-medium">AI 設定</span>
-                <span class="text-sm text-gray-500" id="modelLabel">Claude</span>
-            </div>
-            <span id="arrow">▼</span>
+<!-- Auth Screen -->
+<div id="authScreen" class="auth-screen">
+    <div class="auth-card text-center">
+        <div class="mb-6">
+            <svg class="w-12 h-12 mx-auto mb-4 text-notion-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            <h1 class="text-xl font-semibold text-notion-text">請款單辨識系統</h1>
+            <p class="text-sm text-notion-muted mt-1">請輸入訪問碼以繼續</p>
         </div>
-        <div class="settings-content" id="settings">
-            <div class="pt-4 space-y-3">
-                <div class="grid grid-cols-3 gap-2">
-                    <button onclick="setModel('claude')" id="btn-claude" class="p-3 border-2 rounded-lg border-blue-500 bg-blue-50">🟠 Claude</button>
-                    <button onclick="setModel('openai')" id="btn-openai" class="p-3 border-2 rounded-lg border-gray-200">🟢 OpenAI</button>
-                    <button onclick="setModel('gemini')" id="btn-gemini" class="p-3 border-2 rounded-lg border-gray-200">🔵 Gemini</button>
-                </div>
-                <div id="key-claude">
-                    <label class="text-sm text-gray-600">Claude API Key</label>
-                    <input type="password" id="apikey-claude" class="w-full p-2 border rounded mt-1" placeholder="sk-ant-..." oninput="autoSave()">
-                </div>
-                <div id="key-openai" class="hidden">
-                    <label class="text-sm text-gray-600">OpenAI API Key</label>
-                    <input type="password" id="apikey-openai" class="w-full p-2 border rounded mt-1" placeholder="sk-..." oninput="autoSave()">
-                </div>
-                <div id="key-gemini" class="hidden">
-                    <label class="text-sm text-gray-600">Gemini API Key</label>
-                    <input type="password" id="apikey-gemini" class="w-full p-2 border rounded mt-1" placeholder="AIza-..." oninput="autoSave()">
-                </div>
-                <button onclick="saveKeys()" class="w-full p-2 bg-gray-100 rounded">💾 儲存設定</button>
-            </div>
+        <div class="space-y-3">
+            <input type="password" id="accessCodeInput" class="notion-input text-center" placeholder="輸入訪問碼" autocomplete="off">
+            <button id="authBtn" class="notion-btn notion-btn-primary w-full">
+                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
+                </svg>
+                進入系統
+            </button>
         </div>
     </div>
+</div>
 
-    <!-- Upload -->
-    <div class="bg-white rounded-xl shadow p-6 mb-4">
-        <div id="dropzone" class="upload-area rounded-lg p-8 text-center cursor-pointer" onclick="document.getElementById('fileinput').click()">
-            <input type="file" id="fileinput" accept="image/*" multiple class="hidden" onchange="addFiles(this.files)">
-            <div class="text-4xl mb-2">📷</div>
-            <p class="text-gray-600">點擊或拖放圖片</p>
+<!-- Main App (Hidden until authenticated) -->
+<div id="mainApp" class="hidden">
+    <div class="max-w-xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-semibold text-notion-text mb-1">請款單辨識系統</h1>
+            <p class="text-notion-muted text-sm">上傳請款單照片，自動提取資訊並存入 Google Sheet</p>
         </div>
-        <div id="preview" class="grid grid-cols-3 gap-2 mt-4 hidden"></div>
-        <button id="submitBtn" onclick="submit()" class="w-full mt-4 p-3 bg-blue-500 text-white rounded-lg font-medium hidden">開始辨識</button>
-    </div>
 
-    <!-- Results -->
-    <div id="results" class="space-y-3"></div>
+        <!-- Model Selection Card -->
+        <div class="notion-card mb-4 p-4">
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-sm font-medium text-notion-text">選擇 AI 模型</span>
+                <button id="logoutBtn" class="text-xs text-notion-muted hover:text-notion-text">登出</button>
+            </div>
+            <div class="flex gap-1 p-1 bg-notion-surface rounded-lg" id="modelSelector">
+                <button data-model="claude" class="model-btn flex-1" disabled>Claude</button>
+                <button data-model="openai" class="model-btn flex-1" disabled>OpenAI</button>
+                <button data-model="gemini" class="model-btn flex-1" disabled>Gemini</button>
+            </div>
+        </div>
+
+        <!-- Upload Card -->
+        <div class="notion-card mb-4">
+            <div class="p-4">
+                <div id="dropzone" class="upload-area rounded-lg p-6 text-center cursor-pointer">
+                    <input type="file" id="fileinput" accept="image/*" multiple class="hidden">
+                    <svg class="w-10 h-10 mx-auto mb-3 text-notion-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <p class="text-sm text-notion-text mb-1">點擊或拖放圖片上傳</p>
+                    <p class="text-xs text-notion-muted">支援 JPEG, PNG, GIF, WebP（單檔上限 10MB）</p>
+                </div>
+
+                <div id="preview" class="grid grid-cols-4 gap-2 mt-4 hidden"></div>
+
+                <div id="progressSection" class="mt-4 hidden">
+                    <div class="flex justify-between text-xs text-notion-muted mb-1.5">
+                        <span id="progressText">準備中...</span>
+                        <span id="progressCount">0/0</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <button id="submitBtn" class="notion-btn notion-btn-primary w-full mt-4 hidden">
+                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                    </svg>
+                    開始辨識
+                </button>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div id="results" class="space-y-3"></div>
+    </div>
 </div>
 
 <script>
+// ============================================================================
+// State
+// ============================================================================
+let accessCode = '';
 let model = 'claude';
+let availableModels = [];
 let files = [];
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_TOTAL_SIZE = 50 * 1024 * 1024;
 
-function toggleSettings() {
-    document.getElementById('settings').classList.toggle('open');
-    document.getElementById('arrow').textContent = document.getElementById('settings').classList.contains('open') ? '▲' : '▼';
+// ============================================================================
+// Toast
+// ============================================================================
+function showToast(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.style.animation = 'toastOut 0.2s ease forwards';
+        setTimeout(() => toast.remove(), 200);
+    }, duration);
 }
 
-function setModel(m) {
-    model = m;
-    ['claude','openai','gemini'].forEach(x => {
-        document.getElementById('btn-'+x).className = 'p-3 border-2 rounded-lg ' + (x===m ? 'border-blue-500 bg-blue-50' : 'border-gray-200');
-        document.getElementById('key-'+x).className = x===m ? '' : 'hidden';
+// ============================================================================
+// Authentication
+// ============================================================================
+async function authenticate() {
+    const code = document.getElementById('accessCodeInput').value.trim();
+    if (!code) {
+        showToast('請輸入訪問碼', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('authBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="w-4 h-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>驗證中...';
+
+    try {
+        const res = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'X-Access-Code': code }
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            throw new Error(data.error || '驗證失敗');
+        }
+
+        accessCode = code;
+        availableModels = data.available_models || [];
+        localStorage.setItem('accessCode', code);
+
+        showMainApp();
+        showToast('驗證成功', 'success');
+    } catch (e) {
+        showToast(e.message || '驗證失敗', 'error');
+        localStorage.removeItem('accessCode');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>進入系統';
+}
+
+function logout() {
+    accessCode = '';
+    availableModels = [];
+    localStorage.removeItem('accessCode');
+    document.getElementById('authScreen').classList.remove('hidden');
+    document.getElementById('mainApp').classList.add('hidden');
+    document.getElementById('accessCodeInput').value = '';
+    showToast('已登出', 'success');
+}
+
+function showMainApp() {
+    document.getElementById('authScreen').classList.add('hidden');
+    document.getElementById('mainApp').classList.remove('hidden');
+    setupModelButtons();
+}
+
+function setupModelButtons() {
+    const buttons = document.querySelectorAll('#modelSelector .model-btn');
+    buttons.forEach(btn => {
+        const m = btn.dataset.model;
+        const isAvailable = availableModels.includes(m);
+        btn.disabled = !isAvailable;
+        if (isAvailable && !model) {
+            model = m;
+        }
     });
-    document.getElementById('modelLabel').textContent = {claude:'Claude',openai:'OpenAI',gemini:'Gemini'}[m];
-    autoSave();
+
+    // Select first available model
+    if (availableModels.length > 0 && !availableModels.includes(model)) {
+        model = availableModels[0];
+    }
+
+    updateModelSelection();
 }
 
-function saveKeys(showAlert = true) {
-    localStorage.setItem('model', model);
-    localStorage.setItem('keys', JSON.stringify({
-        claude: document.getElementById('apikey-claude').value,
-        openai: document.getElementById('apikey-openai').value,
-        gemini: document.getElementById('apikey-gemini').value
-    }));
-    if (showAlert) alert('已儲存');
+function updateModelSelection() {
+    document.querySelectorAll('#modelSelector .model-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.model === model);
+    });
 }
 
-function autoSave() {
-    saveKeys(false);
-}
+// ============================================================================
+// Model Selection
+// ============================================================================
+document.getElementById('modelSelector').addEventListener('click', (e) => {
+    const btn = e.target.closest('.model-btn');
+    if (btn && !btn.disabled) {
+        model = btn.dataset.model;
+        updateModelSelection();
+    }
+});
 
-function loadKeys() {
-    const m = localStorage.getItem('model');
-    if (m) setModel(m);
-    const k = localStorage.getItem('keys');
-    if (k) {
-        const keys = JSON.parse(k);
-        document.getElementById('apikey-claude').value = keys.claude || '';
-        document.getElementById('apikey-openai').value = keys.openai || '';
-        document.getElementById('apikey-gemini').value = keys.gemini || '';
+// ============================================================================
+// Auth Event Listeners
+// ============================================================================
+document.getElementById('authBtn').addEventListener('click', authenticate);
+document.getElementById('accessCodeInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') authenticate();
+});
+document.getElementById('logoutBtn').addEventListener('click', logout);
+
+// ============================================================================
+// File Upload
+// ============================================================================
+const dropzone = document.getElementById('dropzone');
+const fileinput = document.getElementById('fileinput');
+
+dropzone.addEventListener('click', () => fileinput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    addFiles(e.dataTransfer.files);
+});
+fileinput.addEventListener('change', () => addFiles(fileinput.files));
+
+function addFiles(newFiles) {
+    const validFiles = [];
+    let totalSize = files.reduce((sum, f) => sum + f.size, 0);
+
+    Array.from(newFiles).forEach(f => {
+        if (!f.type.startsWith('image/')) {
+            showToast(`${f.name} 不是圖片檔案`, 'warning');
+            return;
+        }
+        if (f.size > MAX_FILE_SIZE) {
+            showToast(`${f.name} 超過 10MB 上限`, 'warning');
+            return;
+        }
+        if (totalSize + f.size > MAX_TOTAL_SIZE) {
+            showToast('總檔案大小超過 50MB 上限', 'warning');
+            return;
+        }
+        totalSize += f.size;
+        validFiles.push(f);
+    });
+
+    files = [...files, ...validFiles];
+    renderPreview();
+
+    if (validFiles.length > 0) {
+        showToast(`已加入 ${validFiles.length} 個檔案`, 'success');
     }
 }
 
-function addFiles(newFiles) {
-    files = [...files, ...Array.from(newFiles).filter(f => f.type.startsWith('image/'))];
-    renderPreview();
-}
-
-function removeFile(i) {
-    files.splice(i, 1);
+function removeFile(index) {
+    files.splice(index, 1);
     renderPreview();
 }
 
 function renderPreview() {
-    const p = document.getElementById('preview');
-    const b = document.getElementById('submitBtn');
-    if (!files.length) { p.classList.add('hidden'); b.classList.add('hidden'); return; }
-    p.classList.remove('hidden'); b.classList.remove('hidden');
-    p.innerHTML = '';
+    const preview = document.getElementById('preview');
+    const submitBtn = document.getElementById('submitBtn');
+
+    if (!files.length) {
+        preview.classList.add('hidden');
+        submitBtn.classList.add('hidden');
+        return;
+    }
+
+    preview.classList.remove('hidden');
+    submitBtn.classList.remove('hidden');
+    preview.innerHTML = '';
+
     files.forEach((f, i) => {
-        const r = new FileReader();
-        r.onload = e => {
-            const d = document.createElement('div');
-            d.className = 'relative';
-            d.innerHTML = `<img src="${e.target.result}" class="w-full h-24 object-cover rounded">
-                <button onclick="removeFile(${i})" class="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-sm">×</button>`;
-            p.appendChild(d);
+        const reader = new FileReader();
+        reader.onload = e => {
+            const div = document.createElement('div');
+            div.className = 'preview-item';
+            div.innerHTML = `
+                <img src="${e.target.result}" alt="${f.name}">
+                <button class="remove-btn" title="移除">×</button>
+            `;
+            div.querySelector('.remove-btn').addEventListener('click', () => removeFile(i));
+            preview.appendChild(div);
         };
-        r.readAsDataURL(f);
+        reader.readAsDataURL(f);
     });
 }
 
+// ============================================================================
+// Submit
+// ============================================================================
+document.getElementById('submitBtn').addEventListener('click', submit);
+
 async function submit() {
-    const key = document.getElementById('apikey-'+model).value;
-    if (!key) { alert('請輸入 API Key'); toggleSettings(); return; }
     if (!files.length) return;
 
-    document.getElementById('submitBtn').disabled = true;
-    document.getElementById('submitBtn').textContent = '處理中...';
+    const submitBtn = document.getElementById('submitBtn');
+    const progressSection = document.getElementById('progressSection');
+    const progressText = document.getElementById('progressText');
+    const progressCount = document.getElementById('progressCount');
+    const progressFill = document.getElementById('progressFill');
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<svg class="w-4 h-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>處理中...';
+    progressSection.classList.remove('hidden');
+    progressText.textContent = '上傳中...';
+    progressCount.textContent = `0/${files.length}`;
+    progressFill.style.width = '0%';
 
     const fd = new FormData();
     files.forEach(f => fd.append('files', f));
-    fd.append('model', model);
-    fd.append('api_key', key);
 
     try {
-        const res = await fetch('/api/process', { method: 'POST', body: fd });
+        const res = await fetch(`/api/process?model=${model}`, {
+            method: 'POST',
+            headers: { 'X-Access-Code': accessCode },
+            body: fd
+        });
+
         const data = await res.json();
+
+        if (!res.ok) {
+            if (res.status === 401) {
+                logout();
+                throw new Error('訪問碼已失效，請重新登入');
+            }
+            throw new Error(data.error || '處理失敗');
+        }
+
+        progressFill.style.width = '100%';
+        progressText.textContent = '完成';
+        progressCount.textContent = `${data.successful}/${data.total}`;
+
         showResults(data);
         files = [];
         renderPreview();
+
+        if (data.failed > 0) {
+            showToast(`完成！成功 ${data.successful} 個，失敗 ${data.failed} 個`, 'warning');
+        } else {
+            showToast(`成功辨識 ${data.successful} 個檔案`, 'success');
+        }
     } catch (e) {
-        alert('錯誤: ' + e.message);
+        showToast(e.message || '發生錯誤', 'error');
+        progressSection.classList.add('hidden');
     }
 
-    document.getElementById('submitBtn').disabled = false;
-    document.getElementById('submitBtn').textContent = '開始辨識';
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>開始辨識';
+    setTimeout(() => progressSection.classList.add('hidden'), 2000);
 }
 
+// ============================================================================
+// Results
+// ============================================================================
 function showResults(data) {
-    const r = document.getElementById('results');
-    r.innerHTML = `<div class="text-center p-2 rounded ${data.failed?'bg-yellow-100':'bg-green-100'}">成功 ${data.successful} / 失敗 ${data.failed}</div>`;
+    const resultsContainer = document.getElementById('results');
+
+    const summaryBg = data.failed ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200';
+    const summaryText = data.failed ? 'text-notion-orange' : 'text-notion-green';
+    resultsContainer.innerHTML = `
+        <div class="notion-card ${summaryBg} border">
+            <div class="px-4 py-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 ${summaryText}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span class="text-sm font-medium text-notion-text">成功 ${data.successful} / 失敗 ${data.failed}</span>
+                </div>
+                <a href="${data.spreadsheet_url}" target="_blank" class="text-xs text-notion-blue hover:underline flex items-center gap-1">
+                    查看 Google Sheet
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                    </svg>
+                </a>
+            </div>
+        </div>
+    `;
+
     data.results.forEach(item => {
         const div = document.createElement('div');
-        div.className = 'bg-white rounded-xl shadow p-4';
+        div.className = 'notion-card';
+
         if (item.success) {
-            const fields = ['公司別','申請日期','表單類別','申請事項類別','申請人','對象','幣別','總金額','主旨','內容說明'];
-            div.innerHTML = `<div class="flex justify-between mb-2"><span class="font-medium">${item.filename}</span><span class="text-green-600">✓</span></div>
-                ${fields.map(f => `<div class="flex py-1 border-b border-gray-100 text-sm"><span class="w-24 text-gray-500">${f}</span><span>${item.data[f]||'-'}</span></div>`).join('')}`;
+            const fields = ['公司別', '申請日期', '表單類別', '申請事項類別', '申請人', '對象', '幣別', '總金額', '主旨', '內容說明'];
+            const sheetStatus = item.sheet_saved
+                ? '<span class="text-xs text-notion-green flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>已存入</span>'
+                : '<span class="text-xs text-notion-orange flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>未儲存</span>';
+
+            div.innerHTML = `
+                <div class="px-4 py-3 border-b border-notion-border flex items-center justify-between">
+                    <div>
+                        <span class="text-sm font-medium text-notion-text">${escapeHtml(item.filename)}</span>
+                        <div class="mt-0.5">${sheetStatus}</div>
+                    </div>
+                    <button class="copy-btn notion-btn notion-btn-secondary text-xs px-2 py-1" title="複製 JSON">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="px-4 py-2">
+                    ${fields.map(f => `
+                        <div class="result-row">
+                            <span class="result-label">${f}</span>
+                            <span class="result-value">${escapeHtml(item.data[f]) || '—'}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            div.querySelector('.copy-btn').addEventListener('click', () => {
+                navigator.clipboard.writeText(JSON.stringify(item.data, null, 2))
+                    .then(() => showToast('已複製', 'success'))
+                    .catch(() => showToast('複製失敗', 'error'));
+            });
         } else {
-            div.innerHTML = `<div class="flex justify-between"><span>${item.filename}</span><span class="text-red-600">✗</span></div><p class="text-red-500 text-sm mt-2">${item.error}</p>`;
+            div.innerHTML = `
+                <div class="px-4 py-3 flex items-center justify-between">
+                    <span class="text-sm font-medium text-notion-text">${escapeHtml(item.filename)}</span>
+                    <span class="text-notion-red">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </span>
+                </div>
+                <div class="px-4 pb-3">
+                    <p class="text-sm text-notion-red bg-red-50 px-3 py-2 rounded">${escapeHtml(item.error)}</p>
+                </div>
+            `;
         }
-        r.appendChild(div);
+
+        resultsContainer.appendChild(div);
     });
 }
 
-// Drag & drop
-const dz = document.getElementById('dropzone');
-dz.ondragover = e => { e.preventDefault(); dz.classList.add('dragover'); };
-dz.ondragleave = () => dz.classList.remove('dragover');
-dz.ondrop = e => { e.preventDefault(); dz.classList.remove('dragover'); addFiles(e.dataTransfer.files); };
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
 
-loadKeys();
+// ============================================================================
+// Initialize - Try auto-login with saved access code
+// ============================================================================
+async function init() {
+    const savedCode = localStorage.getItem('accessCode');
+    if (savedCode) {
+        document.getElementById('accessCodeInput').value = savedCode;
+        await authenticate();
+    }
+}
+
+init();
 </script>
 </body>
 </html>
