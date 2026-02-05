@@ -155,9 +155,9 @@
 
         /* Progress Bar */
         .progress-bar {
-            height: 4px;
+            height: 6px;
             background: #E5E5E5;
-            border-radius: 2px;
+            border-radius: 3px;
             overflow: hidden;
         }
         .progress-bar .fill {
@@ -245,6 +245,30 @@
             opacity: 1;
         }
 
+        /* File Status */
+        .file-status-item {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #F0F0F0;
+            font-size: 13px;
+        }
+        .file-status-item:last-child {
+            border-bottom: none;
+        }
+        .file-status-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 0.5rem;
+            flex-shrink: 0;
+        }
+        .file-status-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         /* Auth Screen */
         .auth-screen {
             min-height: 100vh;
@@ -256,6 +280,14 @@
             width: 100%;
             max-width: 360px;
             padding: 2rem;
+        }
+
+        /* Spinner */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            animation: spin 1s linear infinite;
         }
     </style>
 </head>
@@ -292,6 +324,7 @@
         <div class="text-center mb-8">
             <h1 class="text-2xl font-semibold text-notion-text mb-1">請款單辨識系統</h1>
             <p class="text-notion-muted text-sm">上傳請款單照片，自動提取資訊並存入 Google Sheet</p>
+            <p class="text-notion-muted text-xs mt-1">支援批次處理，最多 <span id="maxFilesDisplay">100</span> 張圖片</p>
         </div>
 
         <!-- Model Selection Card -->
@@ -316,19 +349,22 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                     </svg>
                     <p class="text-sm text-notion-text mb-1">點擊或拖放圖片上傳</p>
-                    <p class="text-xs text-notion-muted">支援 JPEG, PNG, GIF, WebP（單檔上限 10MB）</p>
+                    <p class="text-xs text-notion-muted">支援 JPEG, PNG, GIF, WebP（單檔上限 10MB，總計 100MB）</p>
                 </div>
 
-                <div id="preview" class="grid grid-cols-4 gap-2 mt-4 hidden"></div>
+                <div id="preview" class="grid grid-cols-5 gap-2 mt-4 hidden"></div>
+
+                <div id="fileCount" class="text-xs text-notion-muted mt-3 hidden"></div>
 
                 <div id="progressSection" class="mt-4 hidden">
-                    <div class="flex justify-between text-xs text-notion-muted mb-1.5">
-                        <span id="progressText">準備中...</span>
-                        <span id="progressCount">0/0</span>
+                    <div class="flex justify-between text-sm mb-2">
+                        <span id="progressText" class="text-notion-text font-medium">準備中...</span>
+                        <span id="progressCount" class="text-notion-muted">0/0</span>
                     </div>
-                    <div class="progress-bar">
+                    <div class="progress-bar mb-3">
                         <div class="fill" id="progressFill" style="width: 0%"></div>
                     </div>
+                    <div id="fileStatusList" class="max-h-48 overflow-y-auto border border-notion-border rounded-lg p-2 hidden"></div>
                 </div>
 
                 <button id="submitBtn" class="notion-btn notion-btn-primary w-full mt-4 hidden">
@@ -352,9 +388,13 @@
 let accessCode = '';
 let model = 'claude';
 let availableModels = [];
+let maxFiles = 100;
 let files = [];
+let currentTaskId = null;
+let pollInterval = null;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const MAX_TOTAL_SIZE = 50 * 1024 * 1024;
+const MAX_TOTAL_SIZE = 100 * 1024 * 1024;
+const POLL_INTERVAL_MS = 1000;
 
 // ============================================================================
 // Toast
@@ -383,7 +423,7 @@ async function authenticate() {
 
     const btn = document.getElementById('authBtn');
     btn.disabled = true;
-    btn.innerHTML = '<svg class="w-4 h-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>驗證中...';
+    btn.innerHTML = '<svg class="w-4 h-4 mr-1.5 spinner" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>驗證中...';
 
     try {
         const res = await fetch('/api/auth', {
@@ -398,8 +438,10 @@ async function authenticate() {
 
         accessCode = code;
         availableModels = data.available_models || [];
+        maxFiles = data.max_files || 100;
         localStorage.setItem('accessCode', code);
 
+        document.getElementById('maxFilesDisplay').textContent = maxFiles;
         showMainApp();
         showToast('驗證成功', 'success');
     } catch (e) {
@@ -415,6 +457,7 @@ function logout() {
     accessCode = '';
     availableModels = [];
     localStorage.removeItem('accessCode');
+    stopPolling();
     document.getElementById('authScreen').classList.remove('hidden');
     document.getElementById('mainApp').classList.add('hidden');
     document.getElementById('accessCodeInput').value = '';
@@ -438,7 +481,6 @@ function setupModelButtons() {
         }
     });
 
-    // Select first available model
     if (availableModels.length > 0 && !availableModels.includes(model)) {
         model = availableModels[0];
     }
@@ -491,8 +533,13 @@ fileinput.addEventListener('change', () => addFiles(fileinput.files));
 function addFiles(newFiles) {
     const validFiles = [];
     let totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    let skipped = 0;
 
     Array.from(newFiles).forEach(f => {
+        if (files.length + validFiles.length >= maxFiles) {
+            skipped++;
+            return;
+        }
         if (!f.type.startsWith('image/')) {
             showToast(`${f.name} 不是圖片檔案`, 'warning');
             return;
@@ -502,7 +549,7 @@ function addFiles(newFiles) {
             return;
         }
         if (totalSize + f.size > MAX_TOTAL_SIZE) {
-            showToast('總檔案大小超過 50MB 上限', 'warning');
+            showToast('總檔案大小超過 100MB 上限', 'warning');
             return;
         }
         totalSize += f.size;
@@ -515,6 +562,9 @@ function addFiles(newFiles) {
     if (validFiles.length > 0) {
         showToast(`已加入 ${validFiles.length} 個檔案`, 'success');
     }
+    if (skipped > 0) {
+        showToast(`已達上限 ${maxFiles} 個檔案，${skipped} 個檔案被跳過`, 'warning');
+    }
 }
 
 function removeFile(index) {
@@ -522,34 +572,202 @@ function removeFile(index) {
     renderPreview();
 }
 
+function clearFiles() {
+    files = [];
+    renderPreview();
+}
+
 function renderPreview() {
     const preview = document.getElementById('preview');
     const submitBtn = document.getElementById('submitBtn');
+    const fileCount = document.getElementById('fileCount');
 
     if (!files.length) {
         preview.classList.add('hidden');
         submitBtn.classList.add('hidden');
+        fileCount.classList.add('hidden');
         return;
     }
 
     preview.classList.remove('hidden');
     submitBtn.classList.remove('hidden');
+    fileCount.classList.remove('hidden');
+
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    fileCount.textContent = `已選擇 ${files.length} 個檔案（${(totalSize / 1024 / 1024).toFixed(1)} MB）`;
+
     preview.innerHTML = '';
 
-    files.forEach((f, i) => {
+    // Only show first 20 previews to avoid performance issues
+    const previewCount = Math.min(files.length, 20);
+    for (let i = 0; i < previewCount; i++) {
+        const f = files[i];
+        const idx = i; // Capture index in closure
         const reader = new FileReader();
         reader.onload = e => {
             const div = document.createElement('div');
             div.className = 'preview-item';
+            div.dataset.index = idx; // Use data attribute for correct index
             div.innerHTML = `
-                <img src="${e.target.result}" alt="${f.name}">
-                <button class="remove-btn" title="移除">×</button>
+                <img src="${e.target.result}" alt="${escapeHtml(f.name)}">
+                <button class="remove-btn" data-index="${idx}" title="移除">×</button>
             `;
-            div.querySelector('.remove-btn').addEventListener('click', () => removeFile(i));
             preview.appendChild(div);
         };
         reader.readAsDataURL(f);
+    }
+
+    if (files.length > 20) {
+        const more = document.createElement('div');
+        more.className = 'preview-item flex items-center justify-center bg-notion-surface text-notion-muted text-xs';
+        more.style.height = '80px';
+        more.textContent = `+${files.length - 20}`;
+        preview.appendChild(more);
+    }
+}
+
+// Use event delegation for remove buttons (fixes closure index bug)
+document.getElementById('preview').addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-btn');
+    if (btn) {
+        const index = parseInt(btn.dataset.index, 10);
+        if (!isNaN(index)) {
+            removeFile(index);
+        }
+    }
+});
+
+// ============================================================================
+// Task Polling
+// ============================================================================
+function startPolling(taskId) {
+    currentTaskId = taskId;
+    localStorage.setItem('currentTaskId', taskId);
+    localStorage.setItem('taskStartTime', Date.now().toString());
+    pollInterval = setInterval(() => pollTaskStatus(taskId), POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+    }
+    currentTaskId = null;
+    localStorage.removeItem('currentTaskId');
+    localStorage.removeItem('taskStartTime');
+}
+
+// Warn user before closing tab during processing
+window.addEventListener('beforeunload', (e) => {
+    if (currentTaskId && pollInterval) {
+        e.preventDefault();
+        e.returnValue = '處理中的任務尚未完成，確定要離開嗎？';
+        return e.returnValue;
+    }
+});
+
+async function pollTaskStatus(taskId) {
+    try {
+        const res = await fetch(`/api/task/${taskId}`, {
+            headers: { 'X-Access-Code': accessCode }
+        });
+
+        if (!res.ok) {
+            if (res.status === 401) {
+                stopPolling();
+                logout();
+                return;
+            }
+            throw new Error('無法取得任務狀態');
+        }
+
+        const task = await res.json();
+        updateProgress(task);
+
+        if (task.status === 'completed' || task.status === 'failed') {
+            stopPolling();
+            onTaskComplete(task);
+        }
+    } catch (e) {
+        console.error('Poll error:', e);
+    }
+}
+
+function updateProgress(task) {
+    const progressText = document.getElementById('progressText');
+    const progressCount = document.getElementById('progressCount');
+    const progressFill = document.getElementById('progressFill');
+    const fileStatusList = document.getElementById('fileStatusList');
+
+    const percent = task.total > 0 ? Math.round((task.processed / task.total) * 100) : 0;
+    progressFill.style.width = `${percent}%`;
+    progressCount.textContent = `${task.processed}/${task.total}`;
+
+    if (task.status === 'pending') {
+        progressText.textContent = '準備中...';
+    } else if (task.status === 'processing') {
+        progressText.textContent = `處理中... (成功 ${task.successful} / 失敗 ${task.failed})`;
+    } else if (task.status === 'completed') {
+        progressText.textContent = '完成！';
+    } else if (task.status === 'failed') {
+        progressText.textContent = '處理失敗';
+    }
+
+    // Update file status list
+    fileStatusList.classList.remove('hidden');
+    fileStatusList.innerHTML = '';
+
+    task.results.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'file-status-item';
+
+        let icon = '';
+        let statusClass = '';
+        if (r.status === 'pending') {
+            icon = '<svg class="file-status-icon text-notion-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2" stroke-dasharray="4 4"/></svg>';
+            statusClass = 'text-notion-muted';
+        } else if (r.status === 'processing') {
+            icon = '<svg class="file-status-icon text-notion-blue spinner" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+            statusClass = 'text-notion-blue';
+        } else if (r.status === 'success') {
+            icon = '<svg class="file-status-icon text-notion-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+            statusClass = 'text-notion-green';
+        } else if (r.status === 'failed') {
+            icon = '<svg class="file-status-icon text-notion-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>';
+            statusClass = 'text-notion-red';
+        }
+
+        div.innerHTML = `${icon}<span class="file-status-name ${statusClass}">${escapeHtml(r.filename)}</span>`;
+        fileStatusList.appendChild(div);
     });
+
+    // Auto scroll to show processing items
+    const processingItem = fileStatusList.querySelector('.text-notion-blue');
+    if (processingItem) {
+        processingItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function onTaskComplete(task) {
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>開始辨識';
+
+    showResults(task);
+    files = [];
+    renderPreview();
+
+    if (task.failed > 0) {
+        showToast(`完成！成功 ${task.successful} 個，失敗 ${task.failed} 個`, 'warning');
+    } else {
+        showToast(`成功辨識 ${task.successful} 個檔案`, 'success');
+    }
+
+    // Hide progress after delay
+    setTimeout(() => {
+        document.getElementById('progressSection').classList.add('hidden');
+        document.getElementById('fileStatusList').classList.add('hidden');
+    }, 3000);
 }
 
 // ============================================================================
@@ -565,10 +783,12 @@ async function submit() {
     const progressText = document.getElementById('progressText');
     const progressCount = document.getElementById('progressCount');
     const progressFill = document.getElementById('progressFill');
+    const fileStatusList = document.getElementById('fileStatusList');
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<svg class="w-4 h-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>處理中...';
+    submitBtn.innerHTML = '<svg class="w-4 h-4 mr-1.5 spinner" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>上傳中...';
     progressSection.classList.remove('hidden');
+    fileStatusList.classList.add('hidden');
     progressText.textContent = '上傳中...';
     progressCount.textContent = `0/${files.length}`;
     progressFill.style.width = '0%';
@@ -593,27 +813,16 @@ async function submit() {
             throw new Error(data.error || '處理失敗');
         }
 
-        progressFill.style.width = '100%';
-        progressText.textContent = '完成';
-        progressCount.textContent = `${data.successful}/${data.total}`;
+        // Start polling for task status
+        showToast(`已開始處理 ${data.total} 個檔案`, 'success');
+        startPolling(data.task_id);
 
-        showResults(data);
-        files = [];
-        renderPreview();
-
-        if (data.failed > 0) {
-            showToast(`完成！成功 ${data.successful} 個，失敗 ${data.failed} 個`, 'warning');
-        } else {
-            showToast(`成功辨識 ${data.successful} 個檔案`, 'success');
-        }
     } catch (e) {
         showToast(e.message || '發生錯誤', 'error');
         progressSection.classList.add('hidden');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>開始辨識';
     }
-
-    submitBtn.disabled = false;
-    submitBtn.innerHTML = '<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>開始辨識';
-    setTimeout(() => progressSection.classList.add('hidden'), 2000);
 }
 
 // ============================================================================
@@ -647,7 +856,7 @@ function showResults(data) {
         const div = document.createElement('div');
         div.className = 'notion-card';
 
-        if (item.success) {
+        if (item.status === 'success') {
             const fields = ['公司別', '申請日期', '表單類別', '申請事項類別', '申請人', '對象', '幣別', '總金額', '主旨', '內容說明'];
             const sheetStatus = item.sheet_saved
                 ? '<span class="text-xs text-notion-green flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>已存入</span>'
@@ -669,7 +878,7 @@ function showResults(data) {
                     ${fields.map(f => `
                         <div class="result-row">
                             <span class="result-label">${f}</span>
-                            <span class="result-value">${escapeHtml(item.data[f]) || '—'}</span>
+                            <span class="result-value">${escapeHtml(item.data?.[f]) || '—'}</span>
                         </div>
                     `).join('')}
                 </div>
@@ -708,13 +917,52 @@ function escapeHtml(text) {
 }
 
 // ============================================================================
-// Initialize - Try auto-login with saved access code
+// Initialize - Try auto-login and resume interrupted tasks
 // ============================================================================
 async function init() {
     const savedCode = localStorage.getItem('accessCode');
     if (savedCode) {
         document.getElementById('accessCodeInput').value = savedCode;
         await authenticate();
+
+        // Check for interrupted task
+        const savedTaskId = localStorage.getItem('currentTaskId');
+        const taskStartTime = localStorage.getItem('taskStartTime');
+        if (savedTaskId && taskStartTime && accessCode) {
+            const elapsed = Date.now() - parseInt(taskStartTime);
+            // Only try to resume if started within last 30 minutes
+            if (elapsed < 30 * 60 * 1000) {
+                try {
+                    const res = await fetch(`/api/task/${savedTaskId}`, {
+                        headers: { 'X-Access-Code': accessCode }
+                    });
+                    if (res.ok) {
+                        const task = await res.json();
+                        if (task.status === 'processing' || task.status === 'pending') {
+                            showToast('檢測到未完成的任務，正在恢復...', 'info');
+                            document.getElementById('progressSection').classList.remove('hidden');
+                            startPolling(savedTaskId);
+                        } else if (task.status === 'completed' || task.status === 'failed') {
+                            showResults(task);
+                            showToast('已載入上次的處理結果', 'success');
+                            localStorage.removeItem('currentTaskId');
+                            localStorage.removeItem('taskStartTime');
+                        }
+                    } else {
+                        // Task not found, clean up
+                        localStorage.removeItem('currentTaskId');
+                        localStorage.removeItem('taskStartTime');
+                    }
+                } catch (e) {
+                    localStorage.removeItem('currentTaskId');
+                    localStorage.removeItem('taskStartTime');
+                }
+            } else {
+                // Task too old, clean up
+                localStorage.removeItem('currentTaskId');
+                localStorage.removeItem('taskStartTime');
+            }
+        }
     }
 }
 
