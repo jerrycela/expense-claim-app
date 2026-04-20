@@ -52,8 +52,20 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
 MAX_TOTAL_SIZE = 100 * 1024 * 1024  # 100MB total (increased for batch processing)
 MAX_FILES = 100  # Maximum files per batch
-BATCH_SIZE = 5  # Process 5 files concurrently (reduced for rate limit safety)
-BATCH_DELAY = 2.0  # Delay between batches to avoid rate limiting (increased)
+BATCH_SIZE = 10  # Per-batch cap (per-provider throttle below enforces real rate limit)
+BATCH_DELAY = 0.0  # Throttle below handles pacing; no extra batch sleep needed
+
+# Per-provider rate limits (Gemini free tier: 15 RPM; Claude/OpenAI paid tier untouched)
+PROVIDER_MAX_CONCURRENCY = {
+    "gemini": 2,   # max 2 in-flight (safe vs free tier)
+    "claude": 5,
+    "openai": 5,
+}
+PROVIDER_MIN_INTERVAL = {
+    "gemini": 5.0,   # 12 RPM ceiling (safe vs 15 RPM free tier)
+    "claude": 0.0,   # paid tier, no artificial throttle
+    "openai": 0.0,   # paid tier, no artificial throttle
+}
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 VALID_COMPANIES = {"SG", "CELA", "MEGA"}
 
@@ -99,6 +111,53 @@ class TaskStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+# ============================================================================
+# Per-provider throttle: semaphore (concurrency) + min interval between starts
+# ============================================================================
+# Gate guarantees rate correctness (not FIFO fairness — acceptable for bounded
+# batch). Retry backoff releases the slot so other workers proceed during sleep.
+_provider_gates: Dict[str, Dict[str, Any]] = {}
+_provider_gates_lock = asyncio.Lock()
+
+
+async def _get_gate(provider: str) -> Dict[str, Any]:
+    """Lazily build semaphore + last-start timestamp for a provider."""
+    async with _provider_gates_lock:
+        gate = _provider_gates.get(provider)
+        if gate is None:
+            gate = {
+                "sem": asyncio.Semaphore(PROVIDER_MAX_CONCURRENCY.get(provider, 3)),
+                "last_start": 0.0,
+                "interval_lock": asyncio.Lock(),
+            }
+            _provider_gates[provider] = gate
+        return gate
+
+
+async def acquire_provider_slot(provider: str) -> Dict[str, Any]:
+    """Acquire slot: bounded concurrency + minimum interval between starts."""
+    gate = await _get_gate(provider)
+    await gate["sem"].acquire()
+    try:
+        min_interval = PROVIDER_MIN_INTERVAL.get(provider, 0.0)
+        if min_interval > 0:
+            async with gate["interval_lock"]:
+                loop = asyncio.get_running_loop()
+                now = loop.time()
+                wait = gate["last_start"] + min_interval - now
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                gate["last_start"] = asyncio.get_running_loop().time()
+        return gate
+    except Exception:
+        gate["sem"].release()
+        raise
+
+
+def release_provider_slot(gate: Dict[str, Any]) -> None:
+    gate["sem"].release()
 
 
 class FileResult(BaseModel):
@@ -331,13 +390,23 @@ MODEL_HANDLERS = {
 }
 
 
-async def call_with_retry(handler, img_b64: str, media_type: str, api_key: str) -> dict:
-    """Call API handler with exponential backoff retry for rate limits."""
+async def call_with_retry(
+    handler, img_b64: str, media_type: str, api_key: str, provider: str
+) -> dict:
+    """Call API handler with provider throttle + exponential backoff retry."""
     last_exception = None
 
     for attempt in range(MAX_RETRIES):
+        gate = await acquire_provider_slot(provider)
         try:
-            return await handler(img_b64, media_type, api_key)
+            try:
+                return await handler(img_b64, media_type, api_key)
+            finally:
+                # Release the slot so other workers proceed while we sleep
+                # on retry backoff (prevents thundering herd on 429 recovery).
+                if gate is not None:
+                    release_provider_slot(gate)
+                    gate = None
         except ValueError as e:
             error_msg = str(e)
             # Only retry on rate limit errors
@@ -350,7 +419,8 @@ async def call_with_retry(handler, img_b64: str, media_type: str, api_key: str) 
                         MAX_RETRY_DELAY
                     )
                     logger.warning(
-                        f"Rate limited, retrying in {delay:.1f}s (attempt {attempt + 1}/{MAX_RETRIES})"
+                        f"[{provider}] Rate limited, retry in {delay:.1f}s "
+                        f"(attempt {attempt + 1}/{MAX_RETRIES})"
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -486,6 +556,7 @@ async def process_single_file(
     filename: str,
     content: bytes,
     content_type: str,
+    model: ModelType,
     handler,
     api_key: str,
     task_id: str,
@@ -503,7 +574,9 @@ async def process_single_file(
         img_b64 = base64.b64encode(content).decode()
 
         # Call AI model with retry
-        data = await call_with_retry(handler, img_b64, content_type, api_key)
+        data = await call_with_retry(
+            handler, img_b64, content_type, api_key, provider=model.value
+        )
 
         # Validate extracted data
         data = validate_expense_data(data)
@@ -564,7 +637,7 @@ async def process_files_background(
                 file_index = batch_start + i
                 tasks.append(
                     process_single_file(
-                        filename, content, content_type,
+                        filename, content, content_type, model,
                         handler, api_key, task_id, file_index
                     )
                 )
@@ -595,8 +668,9 @@ async def process_files_background(
 
                 task_storage[task_id]["updated_at"] = datetime.now().isoformat()
 
-            # Delay between batches to avoid rate limiting
-            if batch_end < total_files:
+            # Delay between batches (kept for back-compat; provider throttle
+            # does main pacing). Skip sleep when BATCH_DELAY is 0.
+            if batch_end < total_files and BATCH_DELAY > 0:
                 await asyncio.sleep(BATCH_DELAY)
 
         # Batch save to Google Sheet (with retry)
